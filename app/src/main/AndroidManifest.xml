@@ -2,11 +2,10 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
-+   <!-- Request permission to record audio -->
-+   <uses-permission android:name="android.permission.RECORD_AUDIO" />
-+   <!-- Optional: If loading models/vocab from external storage -->
-+   <!-- <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" /> -->
-
+    <!-- Request permission to record audio -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <!-- Optional: If loading models/vocab from external storage -->
+    <!-- <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" /> -->
 
     <application
         android:allowBackup="true"
@@ -19,15 +18,15 @@
         android:theme="@style/Theme.ProjectVoice"
         tools:targetApi="31">
 
-+       <!-- Add an Activity to launch -->
-+       <activity
-+           android:name=".MainActivity"
-+           android:exported="true">
-+           <intent-filter>
-+               <action android:name="android.intent.action.MAIN" />
-+               <category android:name="android.intent.category.LAUNCHER" />
-+           </intent-filter>
-+       </activity>
+        <!-- Add an Activity to launch -->
+        <activity
+            android:name=".MainActivity"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
 
     </application>
 

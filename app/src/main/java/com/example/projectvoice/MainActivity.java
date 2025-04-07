@@ -19,11 +19,14 @@ import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
 
+import com.example.projectvoice.R;
+
 import org.tensorflow.lite.DataType; // Import DataType
 
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
@@ -33,6 +36,7 @@ public class MainActivity extends AppCompatActivity {
 
     private static final String TAG = "MainActivity";
     private static final int REQUEST_RECORD_AUDIO_PERMISSION = 200;
+    private final int outputTensorIndex = 0;
 
     private WhisperHelper whisperHelper;
     private TextView textViewStatus;
@@ -328,7 +332,7 @@ public class MainActivity extends AppCompatActivity {
          // if (dataType == DataType.STRING) return -1; // Variable size, needs special handling
          if (dataType == DataType.BOOL) return 1;
          if (dataType == DataType.INT16) return 2;
-         if (dataType == DataType.FLOAT16) return 2; // Requires specific handling
+        //  if (dataType == DataType.FLOAT16) return 2;
          if (dataType == DataType.INT8) return 1;
          // Add other types if needed
          // throw new IllegalArgumentException("Unsupported data type: " + dataType);
