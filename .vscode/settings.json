@@ -1,3 +1,5 @@
 {
-    "java.configuration.updateBuildConfiguration": "interactive"
+    "java.configuration.updateBuildConfiguration": "interactive",
+    "CodeGPT.apiKey": "CodeGPT Plus Beta",
+    "emulator.emulatorPath": "C:\\Users\\dharu\\AppData\\Local\\Android\\Sdk\\emulator"
 }

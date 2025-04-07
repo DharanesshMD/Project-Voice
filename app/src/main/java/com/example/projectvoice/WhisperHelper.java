@@ -3,10 +3,12 @@ package com.example.projectvoice;
 import android.content.Context;
 import android.content.res.AssetFileDescriptor;
 import android.util.Log;
+import org.tensorflow.lite.DataType;
 
 import org.tensorflow.lite.DataType;
 import org.tensorflow.lite.Interpreter;
 import org.tensorflow.lite.Tensor;
+// Consider adding InterpreterApi and TensorApi if using newer TFLite features
 
 import java.io.FileInputStream;
 import java.io.IOException;
@@ -23,174 +25,209 @@ public class WhisperHelper {
     private static final String TAG = "WhisperHelper";
     private Interpreter interpreter;
 
-    // --- IMPORTANT ---
-    // These are placeholders. You MUST determine the correct input/output shapes
-    // and data types from the specific Whisper TFLite model documentation you are using.
-    // Input is typically Mel Spectrogram data. Output is token IDs.
-    private final int inputTensorIndex = 0; // Usually 0
-    private final int outputTensorIndex = 0; // Usually 0
-    // Example shapes (replace with actual):
-    // private final int[] inputShape = new int[]{1, 80, 3000}; // e.g., [batch, mel_bins, frames]
-    // private final int[] outputShape = new int[]{1, 200};    // e.g., [batch, max_tokens]
+    // These indices usually remain 0, but check your specific model if needed.
+    private final int inputTensorIndex = 0;
+    private final int outputTensorIndex = 0;
+
+    // Optional: Store tensor details after loading for quicker access
+    private DataType inputDataType = null;
+    private int[] inputShape = null;
+    private DataType outputDataType = null;
+    private int[] outputShape = null;
+    private int outputTensorSizeInBytes = -1;
 
 
-    public WhisperHelper(Context context, String modelPath) {
+    public WhisperHelper(Context context, String modelPath) throws IOException {
         if (modelPath == null || modelPath.isEmpty()) {
+            Log.w(TAG, "Model path is null or empty, using default 'whisper-tiny.tflite'");
             modelPath = "whisper-tiny.tflite"; // Default model
         }
         try {
             Interpreter.Options options = new Interpreter.Options();
-            // options.setNumThreads(4); // Optional: Configure threads
-            // Consider adding delegates (GPU, NNAPI) for performance later
-            interpreter = new Interpreter(loadModelFile(context, modelPath), options);
-            Log.i(TAG, "TensorFlow Lite interpreter loaded successfully.");
+            // Optional: Configure threads, delegates (GPU, NNAPI), etc.
+             options.setNumThreads(Math.max(1, Runtime.getRuntime().availableProcessors() / 2)); // Example: Use half available cores
+            // options.addDelegate(new GpuDelegate()); // Requires GPU delegate dependency
+            // options.addDelegate(new NnApiDelegate()); // Requires NNAPI delegate dependency
 
-            // Optional: Log input/output tensor details to verify
-            logTensorDetails();
+            MappedByteBuffer modelBuffer = loadModelFile(context, modelPath);
+            interpreter = new Interpreter(modelBuffer, options);
+            Log.i(TAG, "TensorFlow Lite interpreter loaded successfully from: " + modelPath);
+
+            // Get and store tensor details
+            logAndStoreTensorDetails();
 
         } catch (IOException e) {
-            Log.e(TAG, "Error loading TFLite model: " + e.getMessage(), e);
+            Log.e(TAG, "IOException loading TFLite model '" + modelPath + "': " + e.getMessage());
             interpreter = null; // Ensure interpreter is null if loading failed
-        } catch (Exception e) {
+            throw e; // Re-throw exception so caller knows initialization failed
+        } catch (Exception e) { // Catch other potential runtime errors during initialization
             Log.e(TAG, "Unexpected error initializing interpreter: " + e.getMessage(), e);
             interpreter = null;
+            // Wrap in IOException or a custom exception if needed
+             throw new IOException("Failed to initialize TFLite interpreter", e);
         }
     }
 
     // Overloaded constructor using default model path
-    public WhisperHelper(Context context) {
+    public WhisperHelper(Context context) throws IOException {
          this(context, "whisper-tiny.tflite");
     }
 
 
     // Standard TFLite model loading utility
     private MappedByteBuffer loadModelFile(Context context, String modelPath) throws IOException {
-        AssetFileDescriptor fileDescriptor = context.getAssets().openFd(modelPath);
-        FileInputStream inputStream = new FileInputStream(fileDescriptor.getFileDescriptor());
-        FileChannel fileChannel = inputStream.getChannel();
-        long startOffset = fileDescriptor.getStartOffset();
-        long declaredLength = fileDescriptor.getDeclaredLength();
-        MappedByteBuffer mappedByteBuffer = fileChannel.map(FileChannel.MapMode.READ_ONLY, startOffset, declaredLength);
-        inputStream.close(); // Close stream after mapping
-        fileDescriptor.close();
-        return mappedByteBuffer;
+        AssetFileDescriptor fileDescriptor = null;
+        FileInputStream inputStream = null;
+        FileChannel fileChannel = null;
+        try {
+            fileDescriptor = context.getAssets().openFd(modelPath);
+            inputStream = new FileInputStream(fileDescriptor.getFileDescriptor());
+            fileChannel = inputStream.getChannel();
+            long startOffset = fileDescriptor.getStartOffset();
+            long declaredLength = fileDescriptor.getDeclaredLength();
+            return fileChannel.map(FileChannel.MapMode.READ_ONLY, startOffset, declaredLength);
+        } finally {
+            // Close resources in reverse order of opening
+            if (fileChannel != null) try { fileChannel.close(); } catch (IOException e) { Log.e(TAG, "Error closing FileChannel", e); }
+            if (inputStream != null) try { inputStream.close(); } catch (IOException e) { Log.e(TAG, "Error closing FileInputStream", e); }
+            if (fileDescriptor != null) try { fileDescriptor.close(); } catch (IOException e) { Log.e(TAG, "Error closing AssetFileDescriptor", e); }
+        }
     }
 
-    private void logTensorDetails() {
-        if (interpreter != null) {
-             try {
-                 int inputCount = interpreter.getInputTensorCount();
-                 int outputCount = interpreter.getOutputTensorCount();
-                 Log.d(TAG, "Input Tensor Count: " + inputCount);
-                 Log.d(TAG, "Output Tensor Count: " + outputCount);
-
-                  if (inputCount > inputTensorIndex) {
-                      Tensor inputTensor = interpreter.getInputTensor(inputTensorIndex);
-                      Log.d(TAG, "Input Tensor (" + inputTensorIndex + ") Name: " + inputTensor.name());
-                      Log.d(TAG, "Input Tensor (" + inputTensorIndex + ") Shape: " + Arrays.toString(inputTensor.shape()));
-                      Log.d(TAG, "Input Tensor (" + inputTensorIndex + ") Type: " + inputTensor.dataType());
-                  } else {
-                       Log.w(TAG, "Input Tensor Index " + inputTensorIndex + " out of bounds (Count: " + inputCount + ")");
-                  }
-
-
-                  if (outputCount > outputTensorIndex) {
-                      Tensor outputTensor = interpreter.getOutputTensor(outputTensorIndex);
-                      Log.d(TAG, "Output Tensor (" + outputTensorIndex + ") Name: " + outputTensor.name());
-                      Log.d(TAG, "Output Tensor (" + outputTensorIndex + ") Shape: " + Arrays.toString(outputTensor.shape()));
-                      Log.d(TAG, "Output Tensor (" + outputTensorIndex + ") Type: " + outputTensor.dataType());
-                  } else {
-                       Log.w(TAG, "Output Tensor Index " + outputTensorIndex + " out of bounds (Count: " + outputCount + ")");
-                  }
-
-             } catch (Exception e) {
-                  Log.e(TAG, "Error getting tensor details: " + e.getMessage(), e);
-             }
-        } else {
+    private void logAndStoreTensorDetails() {
+        if (interpreter == null) {
             Log.e(TAG, "Interpreter is null, cannot get tensor details.");
+            return;
+        }
+        try {
+            int inputCount = interpreter.getInputTensorCount();
+            int outputCount = interpreter.getOutputTensorCount();
+            Log.d(TAG, "Input Tensor Count: " + inputCount);
+            Log.d(TAG, "Output Tensor Count: " + outputCount);
+
+            if (inputCount > inputTensorIndex) {
+                Tensor inputTensor = interpreter.getInputTensor(inputTensorIndex);
+                inputDataType = inputTensor.dataType();
+                inputShape = inputTensor.shape().clone(); // Clone shape array
+                Log.d(TAG, "Input Tensor (" + inputTensorIndex + ") Name: " + inputTensor.name());
+                Log.d(TAG, "Input Tensor (" + inputTensorIndex + ") Shape: " + Arrays.toString(inputShape));
+                Log.d(TAG, "Input Tensor (" + inputTensorIndex + ") Type: " + inputDataType);
+            } else {
+                 Log.w(TAG, "Input Tensor Index " + inputTensorIndex + " out of bounds (Count: " + inputCount + ")");
+            }
+
+            if (outputCount > outputTensorIndex) {
+                Tensor outputTensor = interpreter.getOutputTensor(outputTensorIndex);
+                outputDataType = outputTensor.dataType();
+                outputShape = outputTensor.shape().clone(); // Clone shape array
+                outputTensorSizeInBytes = outputTensor.numBytes(); // Store size
+                Log.d(TAG, "Output Tensor (" + outputTensorIndex + ") Name: " + outputTensor.name());
+                Log.d(TAG, "Output Tensor (" + outputTensorIndex + ") Shape: " + Arrays.toString(outputShape));
+                Log.d(TAG, "Output Tensor (" + outputTensorIndex + ") Type: " + outputDataType);
+                Log.d(TAG, "Output Tensor (" + outputTensorIndex + ") Size (bytes): " + outputTensorSizeInBytes);
+
+                 if (outputTensorSizeInBytes <= 0) {
+                     Log.e(TAG, "Output tensor size calculation resulted in <= 0 bytes. Check model output.");
+                 }
+
+            } else {
+                 Log.w(TAG, "Output Tensor Index " + outputTensorIndex + " out of bounds (Count: " + outputCount + ")");
+            }
+
+        } catch (Exception e) {
+             Log.e(TAG, "Error getting tensor details: " + e.getMessage(), e);
+             // Reset stored details on error
+             inputDataType = null;
+             inputShape = null;
+             outputDataType = null;
+             outputShape = null;
+             outputTensorSizeInBytes = -1;
         }
     }
 
     /**
-     * Transcribes audio data.
+     * Transcribes preprocessed audio data.
      *
-     * @param audioData Preprocessed audio data (e.g., Mel Spectrogram) matching the model's input requirements.
-     *                  This needs to be a Buffer (e.g., FloatBuffer, ByteBuffer) depending on the model's input type.
-     * @return The raw output tensor buffer from the model (e.g., token IDs) as a Map, or null if inference fails.
-     *         The map key is the output tensor index (usually 0).
+     * @param preprocessedAudioData A Buffer (usually ByteBuffer or FloatBuffer) containing the
+     *                              audio data already converted to the model's required format
+     *                              (e.g., Mel Spectrogram), shape, and data type.
+     *                              Ensure the buffer is rewound if necessary before passing.
+     * @return A Map containing the raw output tensor buffer(s) from the model, or null if inference fails.
+     *         The map key is the output tensor index (e.g., 0). The value is typically a ByteBuffer.
      */
-    public Map<Integer, Object> transcribe(Object audioData) {
+    public Map<Integer, Object> transcribe(Object preprocessedAudioData) {
         if (interpreter == null) {
             Log.e(TAG, "Interpreter not initialized.");
             return null;
         }
-         if (audioData == null) {
-             Log.e(TAG, "Input audio data is null.");
+        if (preprocessedAudioData == null) {
+             Log.e(TAG, "Input preprocessedAudioData is null.");
              return null;
-         }
-
+        }
+        if (outputTensorSizeInBytes <= 0 || outputDataType == null) {
+            Log.e(TAG, "Output tensor details not available or invalid. Cannot prepare output buffer.");
+            return null;
+        }
 
         try {
-            // --- TODO: Prepare Output Buffer ---
-            // You need to allocate the output buffer based on the output tensor shape and type.
-            Tensor outputTensor = interpreter.getOutputTensor(outputTensorIndex);
-            DataType outputDataType = outputTensor.dataType();
-            int[] outputShape = outputTensor.shape();
-            int outputBytes = outputTensor.numBytes(); // Size in bytes
-
-            if (outputBytes <= 0) {
-                 Log.e(TAG, "Calculated output tensor size is invalid: " + outputBytes);
-                 return null; // Cannot allocate buffer
-            }
-
-
-            ByteBuffer outputBuffer = ByteBuffer.allocateDirect(outputBytes);
+            // --- Prepare Output Buffer ---
+            // Allocate the output buffer based on stored details. Use direct buffer.
+            ByteBuffer outputBuffer = ByteBuffer.allocateDirect(outputTensorSizeInBytes);
             outputBuffer.order(ByteOrder.nativeOrder()); // Crucial for direct buffers
 
             Map<Integer, Object> outputs = new HashMap<>();
             outputs.put(outputTensorIndex, outputBuffer);
 
             // --- Prepare Inputs ---
-            Object[] inputs = new Object[]{audioData};
+            // Assuming single input at inputTensorIndex
+            Object[] inputs = new Object[]{preprocessedAudioData};
 
             // --- Run Inference ---
-            Log.d(TAG, "Running inference...");
+            // Log.d(TAG, "Running inference..."); // Moved logging to MainActivity for timing
             interpreter.runForMultipleInputsOutputs(inputs, outputs);
-            Log.d(TAG, "Inference complete.");
+            // Log.d(TAG, "Inference complete.");
 
-            // --- TODO: Process Output ---
-            // The result is in the 'outputs' map, associated with outputTensorIndex.
-            // The value is the ByteBuffer ('outputBuffer') allocated above, now filled with data.
-            // You need to extract the data (e.g., token IDs) from this buffer based on its
-            // data type (outputDataType) and shape (outputShape), and then convert it to text
-            // using the Whisper vocabulary. This is a complex step involving token decoding.
+            // Rewind the output buffer before returning so the caller can read from the start
+            outputBuffer.rewind();
 
             return outputs; // Return the map containing the raw output buffer
 
         } catch (IllegalArgumentException e) {
-            Log.e(TAG, "IllegalArgumentException during inference. Check input data type/shape: " + e.getMessage(), e);
-             return null;
-        } catch (Exception e) {
-            Log.e(TAG, "Error during inference: " + e.getMessage(), e);
+             // This often indicates a mismatch between the input data provided (shape/type)
+             // and what the model expects.
+            Log.e(TAG, "IllegalArgumentException during inference. Check input data format/shape/type: " + e.getMessage(), e);
+            // Log input buffer details if possible (be careful with large data)
+            if (preprocessedAudioData instanceof ByteBuffer) {
+                ByteBuffer bb = (ByteBuffer) preprocessedAudioData;
+                Log.e(TAG, "Input Buffer details: capacity=" + bb.capacity() + ", limit=" + bb.limit() + ", position=" + bb.position() + ", isDirect=" + bb.isDirect());
+            }
+            return null;
+        } catch (Exception e) { // Catch other runtime TFLite errors
+            Log.e(TAG, "Error during model inference: " + e.getMessage(), e);
             return null;
         }
     }
 
-    // Helper method (example) - must match your model's input type
+    // Helper method to get stored input data type
     public DataType getInputDataType() {
-        if (interpreter != null && interpreter.getInputTensorCount() > inputTensorIndex) {
-            return interpreter.getInputTensor(inputTensorIndex).dataType();
-        }
-        return null; // Or a default/error value
+        return inputDataType;
     }
 
-    // Helper method (example) - must match your model's input shape
+    // Helper method to get stored input shape (returns a copy)
      public int[] getInputShape() {
-         if (interpreter != null && interpreter.getInputTensorCount() > inputTensorIndex) {
-             return interpreter.getInputTensor(inputTensorIndex).shape();
-         }
-         return null;
+         return (inputShape != null) ? inputShape.clone() : null;
      }
+
+    // Helper method to get stored output data type
+    public DataType getOutputDataType() {
+        return outputDataType;
+    }
+
+    // Helper method to get stored output shape (returns a copy)
+     public int[] getOutputShape() {
+         return (outputShape != null) ? outputShape.clone() : null;
+     }
+
 
     // Call this when the helper is no longer needed (e.g., in Activity's onDestroy)
     public void close() {
