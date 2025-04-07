@@ -1,7 +1,7 @@
 plugins {
     alias(libs.plugins.android.application)
-+   // If you plan to use Kotlin (recommended), add this:
-+   // alias(libs.plugins.kotlinAndroid)
+   // If you plan to use Kotlin (recommended), add this:
+   // alias(libs.plugins.kotlinAndroid)
 }
 
 android {
@@ -31,29 +31,29 @@ android {
         sourceCompatibility = JavaVersion.VERSION_11
         targetCompatibility = JavaVersion.VERSION_11
     }
-+   // If using Kotlin:
-+   // kotlinOptions {
-+   //    jvmTarget = "11"
-+   // }
-+
-+   // Add this block to prevent compression of TFLite files
-+   androidResources {
-+       noCompress.add(".tflite")
-+       noCompress.add(".bin") // Also prevent compression for vocab/filter files
-+   }
-+
-+   // If using viewBinding (recommended for UI interaction)
-+   // buildFeatures {
-+   //     viewBinding = true
-+   // }
+   // If using Kotlin:
+   // kotlinOptions {
+   //    jvmTarget = "11"
+   // }
+
+  // Add this block to prevent compression of TFLite files
+    androidResources {
+       noCompress.add(".tflite")
+       noCompress.add(".bin") // Also prevent compression for vocab/filter files
+    }
+ 
+  // If using viewBinding (recommended for UI interaction)
+  // buildFeatures {
+   //     viewBinding = true
+   // }
 }
 
 dependencies {
 
     implementation(libs.appcompat)
     implementation(libs.material)
-+   implementation(libs.tensorflow.lite)
-+   // implementation(libs.tensorflow.lite.support) // Add if you use support library features
+    implementation(libs.tensorflow.lite)
+    // implementation(libs.tensorflow.lite.support) // Add if you use support library features
 
     testImplementation(libs.junit)
     androidTestImplementation(libs.ext.junit)
