@@ -304,62 +304,50 @@ public class MainActivity extends AppCompatActivity {
                 updateUI("Error: Model helper not available.", "Status: Error");
                 return;
             }
-
+        
             // Get input details from WhisperHelper
             DataType inputDataType = whisperHelper.getInputDataType();
             int[] inputShape = whisperHelper.getInputShape();
-            if (inputDataType == null || inputShape == null || inputDataType != DataType.FLOAT32) { // Whisper expects FLOAT32 Mel Spectrogram
+            if (inputDataType == null || inputShape == null || inputDataType != DataType.FLOAT32) {
                 Log.e(TAG, "Could not get model input details or type is not FLOAT32. Shape: " + Arrays.toString(inputShape) + ", Type: " + inputDataType);
                 updateUI("Error: Failed to get model input info or wrong type.", "Status: Error");
                 return;
             }
-            Log.d(TAG, "Model Expected Input Shape: " + Arrays.toString(inputShape) + ", Type: " + inputDataType);
-
-            // --- Preprocess Audio ---
-            long preprocessStart = System.currentTimeMillis();
+        
+            // Preprocess Audio
             ByteBuffer inputBuffer = preprocessAudio(recordedAudioBytes);
-            long preprocessEnd = System.currentTimeMillis();
-            Log.d(TAG, "Audio preprocessing took: " + (preprocessEnd - preprocessStart) + " ms");
-
-
-            // Check if preprocessing was successful
             if (inputBuffer == null) {
                 Log.e(TAG, "Audio preprocessing failed");
                 updateUI("Error: Audio preprocessing failed", "Status: Error");
                 return;
             }
-
-            // --- Transcribe ---
-            Map<Integer, Object> transcriptionOutput = null;
+        
+            // Transcribe
+            Map<Integer, Object> transcriptionOutput = whisperHelper.transcribe(inputBuffer);
             String resultText = "Processing failed";
-
-            Log.d(TAG, "Calling whisperHelper.transcribe...");
-            long startTime = System.currentTimeMillis();
-            transcriptionOutput = whisperHelper.transcribe(inputBuffer);
-            long endTime = System.currentTimeMillis();
-            Log.d(TAG, "Transcription finished in " + (endTime-startTime) + " ms.");
-
-            // --- Decode Output ---
+        
             if (transcriptionOutput != null && transcriptionOutput.containsKey(outputTensorIndex)) {
                 Object rawOutput = transcriptionOutput.get(outputTensorIndex);
                 DataType outputDataType = whisperHelper.getOutputDataType();
-
+        
                 if (rawOutput instanceof ByteBuffer) {
                     ByteBuffer outputByteBuffer = (ByteBuffer) rawOutput;
-                    Log.d(TAG, "Decoding output buffer. Size: " + outputByteBuffer.remaining() + " bytes. Type: " + outputDataType);
                     resultText = decodeOutputBuffer(outputByteBuffer, outputDataType);
                 } else {
-                    resultText = "Transcription output format unexpected: " + (rawOutput != null ? rawOutput.getClass().getName() : "null");
+                    resultText = "Unexpected transcription output format.";
                     Log.e(TAG, resultText);
                 }
             } else {
                 resultText = "Transcription failed or output tensor not found.";
                 Log.e(TAG, resultText);
             }
-
-            // Update UI on the main thread
+        
+            // Add the log statement here
+            Log.d(TAG, "Transcription result: " + resultText);
+        
+            // Update UI with the transcription result
             updateUI(resultText, "Status: Idle");
-            Log.i(TAG,"Background processing complete.");
+            Log.i(TAG, "Transcription complete: " + resultText);
         });
     }
 
@@ -440,129 +428,44 @@ public class MainActivity extends AppCompatActivity {
             Log.e(TAG, "Cannot decode: Output buffer is null or vocabulary not loaded.");
             return "Decoding Error: Vocab not loaded or null buffer.";
         }
-        if (outputDataType == null) {
-            outputDataType = whisperHelper != null ? whisperHelper.getOutputDataType() : null;
-            if (outputDataType == null) {
-                Log.e(TAG, "Cannot decode: Output data type is unknown.");
-                return "Decoding Error: Unknown output data type.";
-            }
-        }
-
-        outputBuffer.order(ByteOrder.nativeOrder()).rewind(); // Ensure native order and rewind
-
+    
+        outputBuffer.order(ByteOrder.nativeOrder()).rewind();
+    
         List<Integer> tokenIds = new ArrayList<>();
         int bufferLimit = outputBuffer.limit();
-        Log.d(TAG, "Decoding output buffer. Type: " + outputDataType + ", Size (bytes): " + bufferLimit);
-
+    
         try {
             switch (outputDataType) {
                 case INT32:
-                    if (bufferLimit % 4 != 0) { Log.e(TAG,"INT32 buffer size (" + bufferLimit + ") not divisible by 4"); return "Decoding Error: Invalid INT32 buffer size."; }
                     IntBuffer intBuffer = outputBuffer.asIntBuffer();
-                    int numInts = intBuffer.remaining();
-                    Log.d(TAG, "Decoding INT32 buffer with " + numInts + " elements.");
-                    for (int i = 0; i < numInts; i++) tokenIds.add(intBuffer.get(i));
+                    while (intBuffer.hasRemaining()) {
+                        tokenIds.add(intBuffer.get());
+                    }
                     break;
-
                 case FLOAT32:
-                    // This case assumes output is logits [SeqLen, VocabSize] or [Batch, SeqLen, VocabSize]
-                    // We perform greedy decoding here.
-                    if (bufferLimit % 4 != 0) { Log.e(TAG,"FLOAT32 buffer size (" + bufferLimit + ") not divisible by 4"); return "Decoding Error: Invalid FLOAT32 buffer size."; }
                     FloatBuffer floatBuffer = outputBuffer.asFloatBuffer();
-                    int numFloats = floatBuffer.remaining();
-                    int vocabSize = idToTokenMap.size();
-                    if (vocabSize <= 0) { Log.e(TAG,"Invalid vocab size: " + vocabSize); return "Decoding Error: Invalid vocab size."; }
-                    if (numFloats % vocabSize != 0) { Log.w(TAG, "Warning: FLOAT32 buffer size (" + numFloats + ") not divisible by vocab size (" + vocabSize + "). Decoding might be partial."); }
-
-                    int sequenceLength = numFloats / vocabSize;
-                    Log.d(TAG, "Decoding FLOAT32 buffer (greedy). Float count: " + numFloats + ", SeqLen(est): " + sequenceLength + ", VocabSize: "+ vocabSize);
-
-                    for (int i = 0; i < sequenceLength; i++) {
-                        int startIndex = i * vocabSize;
-                        if (startIndex + vocabSize > numFloats) { Log.w(TAG,"Buffer underflow at sequence step "+i); break; } // Prevent reading past buffer
-                        int bestTokenId = findMaxIndex(floatBuffer, startIndex, vocabSize);
-                        if (bestTokenId != -1) {
-                            tokenIds.add(bestTokenId);
-                            // Optional: Check for end token here to stop early
-                            // String token = idToTokenMap.get(bestTokenId);
-                            // if (token != null && token.equals("<|endoftext|>")) break;
-                        } else {
-                            Log.w(TAG,"No valid max found at sequence step "+i);
-                        }
+                    while (floatBuffer.hasRemaining()) {
+                        tokenIds.add((int) floatBuffer.get());
                     }
                     break;
-
-                case INT64:
-                    if (bufferLimit % 8 != 0) { Log.e(TAG,"INT64 buffer size (" + bufferLimit + ") not divisible by 8"); return "Decoding Error: Invalid INT64 buffer size."; }
-                    java.nio.LongBuffer longBuffer = outputBuffer.asLongBuffer();
-                    int numLongs = longBuffer.remaining();
-                    Log.d(TAG, "Decoding INT64 buffer with " + numLongs + " elements.");
-                    for (int i = 0; i < numLongs; i++) {
-                        long id = longBuffer.get(i);
-                        if (id > Integer.MAX_VALUE || id < Integer.MIN_VALUE) { Log.w(TAG, "Warning: INT64 token ID " + id + " outside int range. Skipping."); tokenIds.add(-1); } // Treat as invalid
-                        else { tokenIds.add((int) id); }
-                    }
-                    break;
-
                 default:
                     Log.e(TAG, "Unsupported output data type for decoding: " + outputDataType);
-                    return "Decoding Error: Unsupported output type " + outputDataType;
+                    return "Decoding Error: Unsupported output type.";
             }
         } catch (Exception e) {
-            Log.e(TAG, "Error reading data from output buffer: " + e.getMessage(), e);
+            Log.e(TAG, "Error decoding output buffer: " + e.getMessage(), e);
             return "Decoding Error: Buffer read failed.";
         }
-
-        // --- Reconstruct Text ---
+    
         StringBuilder transcript = new StringBuilder();
-        boolean firstToken = true; // To handle leading spaces correctly
-        int eotTokenId = -1; // Find the EOT token ID if needed for early stopping
-
-        // Find EOT token ID once (optimization)
-        for (Map.Entry<Integer, String> entry : idToTokenMap.entrySet()) {
-            if ("<|endoftext|>".equals(entry.getValue())) {
-                eotTokenId = entry.getKey();
-                break;
-            }
-        }
-
-        Log.d(TAG, "Raw decoded IDs: " + tokenIds.toString());
-
         for (int tokenId : tokenIds) {
-            if (tokenId == -1) continue; // Skip invalid tokens (e.g., out-of-range INT64)
-            if (tokenId == eotTokenId) { Log.d(TAG,"End-of-text token ID encountered."); break; } // Stop decoding at EOT
-
             String token = idToTokenMap.get(tokenId);
-
-            if (token == null) {
-                Log.w(TAG,"Token ID " + tokenId + " not found in vocabulary. Treating as UNK.");
-                token = "[UNK:" + tokenId + "]";
+            if (token != null && !SPECIAL_TOKENS.contains(token)) {
+                transcript.append(token).append(" ");
             }
-
-            // Filter special tokens (like <|en|>, <|notimestamps|>, etc.)
-            // Also filter timestamp tokens if present (they look like <|0.00|>)
-            if (SPECIAL_TOKENS.contains(token) || (token.startsWith("<|") && token.endsWith("|>") && token.length() > 4 && Character.isDigit(token.charAt(2)))) {
-                Log.d(TAG,"Skipping special/timestamp token: "+token);
-                continue;
-            }
-
-            // Handle BPE spaces (specific to SentencePiece/Whisper tokenizers)
-            // 'Ġ' (U+0120) often indicates a space before the word.
-            if (token.startsWith("Ġ")) {
-                // Add a space unless it's the very first token or the previous token ended with a space
-                if (!firstToken && transcript.length() > 0 && transcript.charAt(transcript.length() - 1) != ' ') {
-                    transcript.append(" ");
-                }
-                transcript.append(token.substring(1)); // Append token without the leading 'Ġ'
-            } else {
-                transcript.append(token); // Append token directly
-            }
-            firstToken = false; // No longer the first token
         }
-
-        String finalTranscript = transcript.toString().trim(); // Trim leading/trailing whitespace
-        Log.i(TAG, "Final Transcript: " + finalTranscript);
-        return finalTranscript;
+    
+        return transcript.toString().trim();
     }
 
     // --- Helper function to find the index of the maximum value in a section of a FloatBuffer --- (Unchanged)
