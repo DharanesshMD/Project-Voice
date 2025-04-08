@@ -1,7 +1,9 @@
+// Inside app/build.gradle.kts
+
 plugins {
     alias(libs.plugins.android.application)
-   // If you plan to use Kotlin (recommended), add this:
-   // alias(libs.plugins.kotlinAndroid)
+    // If you plan to use Kotlin (recommended), add this:
+    // alias(libs.plugins.kotlinAndroid)
 }
 
 android {
@@ -28,24 +30,25 @@ android {
         }
     }
     compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_11
-        targetCompatibility = JavaVersion.VERSION_11
+        // JTransforms might require Java 8+ compatibility
+        sourceCompatibility = JavaVersion.VERSION_1_8 // Changed from 11 to 8 for wider compatibility if needed, but 11 should be fine
+        targetCompatibility = JavaVersion.VERSION_1_8 // Changed from 11 to 8
     }
-   // If using Kotlin:
-   // kotlinOptions {
-   //    jvmTarget = "11"
-   // }
+    // If using Kotlin:
+    // kotlinOptions {
+    //    jvmTarget = "1.8" // Ensure Kotlin JVM target matches
+    // }
 
-  // Add this block to prevent compression of TFLite files
+    // Add this block to prevent compression of TFLite files
     androidResources {
-       noCompress.add(".tflite")
-       noCompress.add(".bin") // Also prevent compression for vocab/filter files
+        noCompress.add(".tflite")
+        noCompress.add(".bin") // Also prevent compression for vocab/filter files
     }
- 
-  // If using viewBinding (recommended for UI interaction)
-  // buildFeatures {
-   //     viewBinding = true
-   // }
+
+    // If using viewBinding (recommended for UI interaction)
+    // buildFeatures {
+    //     viewBinding = true
+    // }
 }
 
 dependencies {
@@ -54,6 +57,12 @@ dependencies {
     implementation(libs.material)
     implementation(libs.tensorflow.lite)
     // implementation(libs.tensorflow.lite.support) // Add if you use support library features
+
+    // --- Add JTransforms dependency ---
+    implementation("com.github.wendykierp:JTransforms:3.1") {
+        // Exclude conflicting dependencies if they arise (unlikely here)
+        // exclude(group = "junit", module="junit")
+    }
 
     testImplementation(libs.junit)
     androidTestImplementation(libs.ext.junit)
